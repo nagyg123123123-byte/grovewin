@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grove Street Glücksrad</title>
+<link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Pacifico&display=swap" rel="stylesheet">
+
+<style>
+body {
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+    background: url('https://cdn.discordapp.com/attachments/1334584193862209619/1446947095637397586/image.png?ex=6937d03e&is=69367ebe&hm=e54b52398e197267452110562608ef3460b9538ef269df983a576fb9e3f81afa&') no-repeat center center fixed;
+    background-size: cover;
+    color: white;
+    text-align: center;
+    position: relative;
+    min-height: 100vh;
+}
+
+h1 {
+    font-family: 'Permanent Marker', cursive;
+    font-size: 4em;
+    margin: 50px 0 20px 0;
+    color: #ffdf00;
+    text-shadow: 3px 3px 10px #000;
+}
+
+#wheelContainer {
+    position: relative;
+    margin: 0 auto;
+    width: 400px;
+    height: 400px;
+}
+
+#pointer {
+    position: absolute;
+    top: -35px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 22px solid transparent;
+    border-right: 22px solid transparent;
+    border-top: 40px solid #ff2b2b;
+    filter: drop-shadow(0px 0px 6px rgba(255,0,0,0.7));
+    z-index: 10;
+}
+
+#spinButton {
+    margin-top: 30px;
+    padding: 15px 30px;
+    font-size: 1.5em;
+    background: linear-gradient(45deg,#ffdf00,#f39c12);
+    color: #145a32;
+    border: none;
+    border-radius: 15px;
+    cursor: pointer;
+    font-weight: bold;
+    box-shadow: 2px 2px 12px #000;
+    transition: transform 0.2s;
+}
+
+#spinButton:hover { transform: scale(1.1); }
+#spinButton.disabled { background: gray; cursor: not-allowed; }
+
+#cooldownText { margin-top: 10px; font-size: 1.4em; text-shadow: 2px 2px 5px #000; color:#ffdf00; }
+#result { margin-top: 20px; font-size: 1.8em; text-shadow: 2px 2px 8px #000; color:#ffdf00; }
+
+#byTerra {
+    position: absolute; bottom: 10px; left: 10px;
+    font-family:'Pacifico', cursive; font-size:1.5em;
+    color:#ffdf00; text-shadow:2px 2px 5px #000;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Grove Street</h1>
+
+<input id="playerName" placeholder="Nume + ID" style="padding:10px;font-size:1.2em;border-radius:10px;margin-bottom:20px;">
+
+<div id="wheelContainer">
+    <div id="pointer"></div>
+    <canvas id="wheel" width="400" height="400"></canvas>
+</div>
+
+<button id="spinButton">Invarte</button>
+
+<div id="cooldownText"></div>
+<div id="result"></div>
+
+<div id="byTerra">by TeRRa</div>
+
+<script>
+// DISCORD WEBHOOK
+const WEBHOOK_URL = "https://discord.com/api/webhooks/1446948638281433260/E6pSje9NAPrIeypAsEH3BumpqCLU6mrBF7YmSIez7TKrLaO221sPoAz3DQWe11nFL1Ws";
+function sendDiscordMessage(username, prize) {
+    fetch(WEBHOOK_URL, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({ content:`🎉 **Grove Street Wheel Spin** 🎉\n👤 **Player:** ${username}\n🏆 **Prize:** ${prize}` })
+    });
+}
+
+// Wheel data
+const prizes = ["2x Veste","2x Seringi","3x Bandaje","10x Apa si Mancare","2x Kit Reparatie","5mil Bani"];
+const colors = ["rgba(255,255,255,0.2)","rgba(255,255,255,0.3)","rgba(255,255,255,0.2)","rgba(255,255,255,0.3)","rgba(255,255,255,0.2)","rgba(255,255,255,0.3)"];
+
+const canvas = document.getElementById('wheel');
+const ctx = canvas.getContext('2d');
+const spinButton = document.getElementById('spinButton');
+const cooldownText = document.getElementById('cooldownText');
+const resultDiv = document.getElementById('result');
+let wheelRadius = canvas.width / 2;
+let rotation = 0;
+
+// DRAW WHEEL
+function drawWheel(rotationAngle = 0) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let angle = (2 * Math.PI) / prizes.length;
+
+    for (let i = 0; i < prizes.length; i++) {
+        ctx.fillStyle = colors[i];
+        ctx.beginPath();
+        ctx.moveTo(wheelRadius, wheelRadius);
+        ctx.arc(wheelRadius, wheelRadius, wheelRadius, i * angle + rotationAngle, (i + 1) * angle + rotationAngle);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.save();
+        ctx.translate(wheelRadius, wheelRadius);
+        ctx.rotate(i * angle + angle / 2 + rotationAngle);
+        ctx.textAlign = "right";
+        ctx.fillStyle = "white";
+        ctx.font = "bold 16px Arial";
+        ctx.fillText(prizes[i], wheelRadius - 10, 5);
+        ctx.restore();
+    }
+}
+
+// INITIAL DRAW
+drawWheel();
+
+// COOLDOWN
+const COOLDOWN_HOURS = 24;
+
+function updateCooldownText() {
+    const last = localStorage.getItem("lastSpin");
+    if(!last){ cooldownText.textContent=""; return; }
+
+    let diff = (parseInt(last) + COOLDOWN_HOURS * 3600000) - Date.now();
+    if(diff <= 0){
+        spinButton.disabled = false; spinButton.classList.remove("disabled");
+        spinButton.textContent = "Invarte"; cooldownText.textContent=""; return;
+    }
+
+    cooldownText.textContent = `Poți da din nou peste: ${Math.floor(diff/3600000)}h ${Math.floor((diff%3600000)/60000)}m`;
+}
+
+function activateCooldown() {
+    spinButton.textContent="Poți reveni în 24h";
+    spinButton.disabled = true; spinButton.classList.add("disabled");
+}
+
+setInterval(updateCooldownText,1000); updateCooldownText();
+if(localStorage.getItem("lastSpin")) activateCooldown();
+
+// SPIN LOGIC
+let spinning = false;
+function spinWheel() {
+    const last = localStorage.getItem("lastSpin");
+    if (last && Date.now() - last < COOLDOWN_HOURS * 3600000) {
+        activateCooldown();
+        return;
+    }
+    if (spinning) return;
+    spinning = true;
+    resultDiv.textContent = "";
+
+    let sliceAngle = (2 * Math.PI) / prizes.length;
+
+    // Random spins
+    let extraSpins = Math.random() * 10 + 10; // 10–20 full spins
+    let totalRotation = extraSpins * 2 * Math.PI;
+
+    let startRotation = rotation;
+    let startTime = null;
+
+    function animate(timestamp) {
+        if (!startTime) startTime = timestamp;
+        let elapsed = timestamp - startTime;
+        let duration = 4000; // 4 seconds
+        let progress = Math.min(elapsed / duration, 1);
+        let eased = 1 - Math.pow(1 - progress, 3); // cubic ease-out
+
+        rotation = startRotation + eased * totalRotation;
+        drawWheel(rotation);
+
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            rotation %= 2 * Math.PI; // normalize
+
+            // Calculate which slice is under the arrow
+            let arrowAngle = (3 * Math.PI / 2 - rotation + 2 * Math.PI) % (2 * Math.PI);
+            let winningIndex = Math.floor(arrowAngle / sliceAngle);
+            let prize = prizes[winningIndex];
+
+            resultDiv.textContent = `🎉 Ai câștigat: ${prize}!`;
+
+            sendDiscordMessage(
+                document.getElementById("playerName").value || "Unknown",
+                prize
+            );
+
+            localStorage.setItem("lastSpin", Date.now());
+            activateCooldown();
+            updateCooldownText();
+            spinning = false;
+        }
+    }
+
+    requestAnimationFrame(animate);
+}
+
+
+spinButton.onclick = spinWheel;
+</script>
+
+<!-- SNOW EFFECT -->
+<canvas id="snowCanvas"></canvas>
+<script>
+const snowCanvas = document.getElementById("snowCanvas");
+const ctxSnow = snowCanvas.getContext("2d");
+
+function resize(){ snowCanvas.width=innerWidth; snowCanvas.height=innerHeight; }
+resize(); addEventListener("resize",resize);
+
+let flakes=[]; for(let i=0;i<120;i++) flakes.push({
+    x:Math.random()*innerWidth,
+    y:Math.random()*innerHeight,
+    r:Math.random()*3+1,
+    s:Math.random()*1+0.5,
+    d:Math.random()*1-0.5
+});
+
+function snow(){
+    ctxSnow.clearRect(0,0,innerWidth,innerHeight);
+    ctxSnow.fillStyle="white"; ctxSnow.beginPath();
+
+    flakes.forEach(f=>{
+        ctxSnow.moveTo(f.x,f.y); ctxSnow.arc(f.x,f.y,f.r,0,Math.PI*2);
+        f.y+=f.s; f.x+=f.d;
+        if(f.y>innerHeight){ f.y=-5; f.x=Math.random()*innerWidth; }
+    });
+
+    ctxSnow.fill(); requestAnimationFrame(snow);
+}
+snow();
+
+snowCanvas.style.position="fixed"; snowCanvas.style.pointerEvents="none";
+snowCanvas.style.top=0; snowCanvas.style.left=0; snowCanvas.style.zIndex="999";
+</script>
+
+</body>
+</html>
